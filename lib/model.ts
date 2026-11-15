@@ -162,6 +162,8 @@ export interface RadarData {
   watchlist_excluded: string[];
   /** Protocols left off the board because the snapshot lacks a figure the model needs (age, growth or TVL). */
   unrankable: UnrankableRow[];
+  /** Rankable pre-token protocols outside the watchlist left off the board because the model cannot score them (a count, not a list). */
+  unscorable_count: number;
   rows: RadarRow[];
   live: LiveRow[];
 }
@@ -278,6 +280,12 @@ export function unrankable(snapshot: Snapshot): UnrankableRow[] {
     if (reason !== null) rows.push({ slug, reason });
   }
   return rows;
+}
+
+/** Rankable pre-token protocols off the board because they are unscorable, excluding watchlist slugs (those are in `unrankable`). */
+export function unscorableCount(snapshot: Snapshot, model: ModelConstants = MODEL): number {
+  const watch = new Set(snapshot.watchlist);
+  return snapshot.protocols.filter((p) => !watch.has(p.slug) && isRankable(p) && unrankableReason(p, snapshot.as_of, model) !== null).length;
 }
 
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
@@ -465,6 +473,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     live_size: liveProtocols(snapshot).length,
     watchlist_excluded: watchlistExcluded(snapshot),
     unrankable: unrankable(snapshot),
+    unscorable_count: unscorableCount(snapshot, model),
     rows: board.map(radarRow),
     live,
   };
