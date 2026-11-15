@@ -1,0 +1,68 @@
+{
+  ".makefun/freshness.json": {
+    "mtime": 1794768755.3772092,
+    "seen": 1794768807.7915587,
+    "ast_hash": "b3900a757ba01004f3ac0d75f09a2a5c",
+    "semantic_hash": ""
+  },
+  ".makefun/owner.json": {
+    "mtime": 1794768755.379629,
+    "seen": 1794768807.7915666,
+    "ast_hash": "661521b7b2381f3b8fb8fa2891a2ad22",
+    "semantic_hash": ""
+  },
+  "dashboard/app.js": {
+    "mtime": 1794768755.379818,
+    "seen": 1794768807.7915702,
+    "ast_hash": "6204410b2e3d716d7b36d1c30e97b647",
+    "semantic_hash": ""
+  },
+  "lib/model.ts": {
+    "mtime": 1794768755.379818,
+    "seen": 1794768807.7915719,
+    "ast_hash": "1ec4174cebe84c4bd30d874b27200ed9",
+    "semantic_hash": ""
+  },
+  "main.ts": {
+    "mtime": 1794768755.379818,
+    "seen": 1794768807.7915738,
+    "ast_hash": "782f7a809a485f75a189aa2737130aa0",
+    "semantic_hash": ""
+  },
+  "vendor/makefun-board.ts": {
+    "mtime": 1794768755.3812091,
+    "seen": 1794768807.7915757,
+    "ast_hash": "5ba220c2671b81b1c453350f3235adf4",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1794768755.379629,
+    "seen": 1794768807.7915773,
+    "ast_hash": "a2af665667d6ea3d505c87174ef16f08",
+    "semantic_hash": ""
+  },
+  "dashboard/index.html": {
+    "mtime": 1794768755.379818,
+    "seen": 1794768807.7915785,
+    "ast_hash": "b91d4f012d73e81ff54ee68cd58af6ef",
+    "semantic_hash": ""
+  },
+  "screenshots/01-board.png": {
+    "mtime": 1794768755.379818,
+    "seen": 1794768807.7915802,
+    "ast_hash": "4426c36c9f2f220298f08cf4abca72f4",
+    "semantic_hash": ""
+  },
+  "screenshots/02-detail.png": {
+    "mtime": 1794768755.3812091,
+    "seen": 1794768807.7915814,
+    "ast_hash": "954aee9a8ff77cda288400faf760841a",
+    "semantic_hash": ""
+  },
+  "screenshots/03-filtered.png": {
+    "mtime": 1794768755.3812091,
+    "seen": 1794768807.7915828,
+    "ast_hash": "58fdba07dd148596e14a5625aa6711af",
+    "semantic_hash": ""
+  }
+}
