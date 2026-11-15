@@ -285,9 +285,12 @@
       body.appendChild(tr);
     });
     renderHead();
-    var foot = 'Board counts ' + DATA.rows.length + ' pre-token protocols (' + DATA.early_size + ' below the ' +
-      fmtUsd(DATA.floor_usd) + ' watchlist floor) and sets ' + DATA.live_size + ' live-token protocols aside. Data sealed ' +
-      DATA.as_of + ' from ' + DATA.source + '.';
+    var foot = 'Board ranks every scorable pre-token protocol (' + DATA.rows.length + ') and sets ' +
+      DATA.live_size + ' live-token protocols aside. Data sealed ' + DATA.as_of + ' from ' + DATA.source + '.';
+    // Older data.js files may lack this field: say nothing for it then.
+    if (typeof DATA.unscorable_count === 'number') {
+      foot += ' Unscorable (left off the board): ' + DATA.unscorable_count + '.';
+    }
     // Older data.js files carry neither field: only say what the data says.
     if (Array.isArray(DATA.watchlist_excluded)) {
       foot += ' Watchlist excluded: ' + DATA.watchlist_excluded.length +
