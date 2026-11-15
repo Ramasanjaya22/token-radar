@@ -74,9 +74,6 @@ export const MODEL: ModelConstants = {
 /** The model's version label: the dashboard names it and the rules quote it. */
 export const MODEL_VERSION = 'radar-2';
 
-/** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
-export const EARLY_ROWS = 200;
-
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
 
@@ -253,8 +250,8 @@ export function watchlistExcluded(snapshot: Snapshot): string[] {
   });
 }
 
-/** The protocols the board considers: every rankable watchlist slug, then the early pre-token pool below the floor. */
-function candidates(snapshot: Snapshot, earlyRows: number, model: ModelConstants): SnapshotProtocol[] {
+/** The protocols the board considers: every rankable watchlist slug, then every other scorable pre-token protocol. */
+function candidates(snapshot: Snapshot, model: ModelConstants): SnapshotProtocol[] {
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug it names, whatever its rank. Coverage is the gate's first row.
@@ -262,12 +259,10 @@ function candidates(snapshot: Snapshot, earlyRows: number, model: ModelConstants
     const p = index.get(slug);
     if (p !== undefined && isRankable(p)) chosen.set(slug, p);
   }
-  // The early radar: pre-token protocols below the watchlist floor, by TVL, capped. Never a replacement
-  // for a watchlist row: a chosen protocol stays chosen. The cap counts scorable protocols only.
+  // Every other rankable, scorable pre-token protocol: no floor, no cap. A chosen protocol stays chosen.
   const early = snapshot.protocols
-    .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd && unrankableReason(p, snapshot.as_of, model) === null)
-    .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
-    .slice(0, earlyRows);
+    .filter((p) => !chosen.has(p.slug) && isRankable(p) && unrankableReason(p, snapshot.as_of, model) === null)
+    .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   for (const p of early) chosen.set(p.slug, p);
   return [...chosen.values()];
 }
@@ -286,8 +281,8 @@ export function unrankable(snapshot: Snapshot): UnrankableRow[] {
 }
 
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
-export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, earlyRows: number = EARLY_ROWS): BoardRow[] {
-  const scored = candidates(snapshot, earlyRows, model).flatMap((p) => {
+export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
+  const scored = candidates(snapshot, model).flatMap((p) => {
     const v = impliedValue(p, snapshot.as_of, model);
     return v === null ? [] : [{ p, ...v }];
   });

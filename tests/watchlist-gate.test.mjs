@@ -17,7 +17,7 @@ test('a live-token watchlist entry is excluded from the board, listed, and the b
   for (const r of board) assert.equal(r.token_status, 'pre-token');
 });
 
-test('an unscorable early-pool protocol does not consume the early cap', () => {
+test('an unscorable protocol is left off the board and does not displace scorable ones', () => {
   const snapshot = makeSnapshot({
     watchlist: [],
     protocols: [
@@ -25,6 +25,16 @@ test('an unscorable early-pool protocol does not consume the early cap', () => {
       makePreTokenProtocol({ slug: 'scorable', name: 'Scorable', tvl_usd: 100_000 }),
     ],
   });
-  const board = buildBoard(snapshot, MODEL, 1);
+  const board = buildBoard(snapshot, MODEL);
   assert.deepEqual(board.map((r) => r.slug), ['scorable']);
+});
+
+test('the early pool is not capped: 30 scorable pre-token protocols above the floor give 30 rows', () => {
+  const protocols = Array.from({ length: 30 }, (_, i) =>
+    makePreTokenProtocol({ slug: `pre-${i}`, name: `Pre ${i}`, tvl_usd: 2_000_000 + i * 500_000 }),
+  );
+  const snapshot = makeSnapshot({ watchlist: [], protocols });
+  const board = buildBoard(snapshot, MODEL);
+  assert.equal(board.length, 30);
+  assert.equal(boardIssue(board, snapshot), null);
 });
