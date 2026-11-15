@@ -99,7 +99,7 @@ export interface BoardRow {
   listed_at: string | null;
   gecko_id: string | null;
   symbol: string | null;
-  token_status: 'pre-token';
+  token_status: 'pre-token' | 'live';
   age_days: number | null;
   implied_value_usd: number;
   model: {
@@ -154,6 +154,8 @@ export interface RadarData {
   board_size: number;
   early_size: number;
   live_size: number;
+  /** Watchlist slugs left off the board because the protocol is not rankable (a live token, exchange or versioned pool). */
+  watchlist_excluded: string[];
   rows: RadarRow[];
   live: LiveRow[];
 }
@@ -220,6 +222,15 @@ function bySlug(protocols: SnapshotProtocol[]): Map<string, SnapshotProtocol> {
   return new Map(protocols.map((p) => [p.slug, p]));
 }
 
+/** Watchlist slugs the board leaves off because their protocol is not rankable, in watchlist order. */
+export function watchlistExcluded(snapshot: Snapshot): string[] {
+  const index = bySlug(snapshot.protocols);
+  return snapshot.watchlist.filter((slug) => {
+    const p = index.get(slug);
+    return p !== undefined && !isRankable(p);
+  });
+}
+
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, earlyRows: number = EARLY_ROWS): BoardRow[] {
   const index = bySlug(snapshot.protocols);
@@ -227,7 +238,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, ea
   // The watchlist is the floor: every slug it names, whatever its rank. Coverage is the gate's first row.
   for (const slug of snapshot.watchlist) {
     const p = index.get(slug);
-    if (p !== undefined) chosen.set(slug, p);
+    if (p !== undefined && isRankable(p)) chosen.set(slug, p);
   }
   // The early radar: pre-token protocols below the watchlist floor, by TVL, capped. Never a replacement
   // for a watchlist row: a chosen protocol stays chosen.
@@ -254,7 +265,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, ea
     listed_at: s.p.listed_at,
     gecko_id: s.p.gecko_id,
     symbol: s.p.symbol,
-    token_status: 'pre-token',
+    token_status: isPreToken(s.p) ? 'pre-token' : 'live',
     age_days: s.age,
     implied_value_usd: s.implied,
     model: {
@@ -418,6 +429,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     board_size: board.length,
     early_size: early,
     live_size: liveProtocols(snapshot).length,
+    watchlist_excluded: watchlistExcluded(snapshot),
     rows: board.map(radarRow),
     live,
   };
@@ -465,7 +477,8 @@ export function parseSnapshot(text: string): Snapshot {
 /** Why a board must not be handed to the gate, or null when it passes. */
 export function boardIssue(board: BoardRow[], snapshot: Snapshot): string | null {
   const slugs = new Set(board.map((r) => r.slug));
-  const missing = snapshot.watchlist.filter((s) => !slugs.has(s));
+  const excluded = new Set(watchlistExcluded(snapshot));
+  const missing = snapshot.watchlist.filter((s) => !excluded.has(s) && !slugs.has(s));
   if (missing.length > 0) return `the board misses ${missing.length} watchlist slug${missing.length === 1 ? '' : 's'}: ${missing.slice(0, 5).join(', ')}`;
   const ranks = board.map((r) => r.rank).sort((a, b) => a - b);
   for (let i = 0; i < ranks.length; i++) if (ranks[i] !== i + 1) return `rank ${i + 1} is ${ranks[i]}`;
