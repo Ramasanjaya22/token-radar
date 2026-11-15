@@ -12,12 +12,11 @@
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
 
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
 
-let shotCount = 0;
 const here = fileURLToPath(new URL('.', import.meta.url));
 
 /** The scorer's own caps: the text cap shapes the bytes, the rest refuse. */
@@ -86,11 +85,11 @@ function copyFiles(from: string, to: string): string[] {
   return copied;
 }
 
-// Build everything in a staging directory beside the output; the output is only touched once every check passes.
+// Build everything in a staging directory inside the output (one filesystem for the final rename); the output is only touched once every check passes.
 mkdirSync(out, { recursive: true });
-const staging = mkdtempSync(join(dirname(resolve(out)), '.token-radar-stage-'));
+const staging = mkdtempSync(join(out, '.token-radar-stage-'));
 process.on('exit', () => rmSync(staging, { recursive: true, force: true }));
-try {
+function stageAndInstall(): number {
   copyFiles(dashboardDir, join(staging, 'dashboard'));
   const shots = copyFiles(join(here, 'screenshots'), join(staging, 'screenshots'));
   if (shots.length < MIN_SCREENSHOTS || shots.length > SCREENSHOT_CAPS.max) {
@@ -112,12 +111,11 @@ try {
     rmSync(join(out, name), { recursive: true, force: true });
   }
   for (const name of readdirSync(staging)) renameSync(join(staging, name), join(out, name));
-  rmSync(staging, { recursive: true, force: true });
-  shotCount = shots.length;
-} catch (error) {
-  rmSync(staging, { recursive: true, force: true });
-  throw error;
+  rmSync(staging, { recursive: true, force: true }); // before the dossier reads out/
+  return shots.length;
 }
+
+const shotCount = stageAndInstall();
 
 // The dossier is written last: the scorer rebuilds it from this /output and compares bytes.
 writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: { max_files: 400, max_bytes: 4_194_304 } }));

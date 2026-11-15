@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync, symlinkSync, copyFileSync, rmSync } from 'node:fs';
@@ -9,8 +9,14 @@ import { makeSnapshot, makeProtocol, makePreTokenProtocol } from './helpers/snap
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
+const made = [];
+afterEach(() => {
+  while (made.length) rmSync(made.pop(), { recursive: true, force: true });
+});
 function tmp() {
-  return mkdtempSync(join(tmpdir(), 'token-radar-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'token-radar-test-'));
+  made.push(dir);
+  return dir;
 }
 function goodSnapshot() {
   return makeSnapshot({
