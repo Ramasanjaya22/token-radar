@@ -1,7 +1,7 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync, symlinkSync, copyFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync, symlinkSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -114,4 +114,34 @@ test('a failed run leaves no new board.json or data.js', () => {
   assert.equal(r.status, 1);
   assert.equal(existsSync(join(out, 'board.json')), false);
   assert.equal(existsSync(join(out, 'data.js')), false);
+});
+
+test('a 758-protocol snapshot ranks all 226 scorable pre-token protocols and counts the 6 unscorable', () => {
+  const protocols = [];
+  for (let i = 0; i < 226; i++) {
+    protocols.push(makePreTokenProtocol({ slug: `pre-${i}`, name: `Pre ${i}`, tvl_usd: 1_000_000 + i * 37_000, change_7d: (i % 40) - 10 }));
+  }
+  for (let i = 0; i < 6; i++) {
+    protocols.push(makePreTokenProtocol({ slug: `nodate-${i}`, name: `Nodate ${i}`, listed_at: null }));
+  }
+  for (let i = 0; i < 400; i++) protocols.push(makeProtocol({ slug: `live-${i}`, name: `Live ${i}` }));
+  for (let i = 0; i < 60; i++) protocols.push(makePreTokenProtocol({ slug: `cex-${i}`, name: `Cex ${i}`, category: 'CEX' }));
+  for (let i = 0; i < 66; i++) protocols.push(makePreTokenProtocol({ slug: `ver-${i}`, name: `Pool ${i} V${(i % 3) + 2}` }));
+  assert.equal(protocols.length, 758);
+
+  const dir = tmp();
+  const input = join(dir, 'snapshot.json');
+  writeFileSync(input, JSON.stringify(makeSnapshot({ protocols, watchlist: ['pre-3', 'pre-77', 'pre-200'] })));
+  const out = join(dir, 'out');
+  const r = run(['--input', input, '--output', out]);
+  assert.equal(r.status, 0, r.stderr); // the gate (boardIssue) refuses with a non-zero exit
+
+  const rows = JSON.parse(readFileSync(join(out, 'board.json'), 'utf8')).rows;
+  assert.equal(rows.length, 226);
+  const slugs = new Set(rows.map((x) => x.slug));
+  for (const s of ['pre-3', 'pre-77', 'pre-200']) assert.ok(slugs.has(s), `${s} on the board`);
+  assert.equal(rows.filter((x) => x.slug.startsWith('live-') || x.slug.startsWith('cex-') || x.slug.startsWith('ver-') || x.slug.startsWith('nodate-')).length, 0);
+
+  const radar = JSON.parse(readFileSync(join(out, 'data.js'), 'utf8').replace(/^window\.RADAR=/, '').replace(/;\s*$/, ''));
+  assert.equal(radar.unscorable_count, 6);
 });
