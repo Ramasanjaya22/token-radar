@@ -5,7 +5,18 @@
   'use strict';
 
   var DATA = window.RADAR;
-  if (!DATA) return;
+  if (!DATA || typeof DATA !== 'object') {
+    // data.js did not load (not built, or opened from the wrong place): say so instead of a blank page.
+    var banner = document.getElementById('no-data');
+    if (banner) banner.hidden = false;
+    ['model', 'controls', 'board', 'detail'].forEach(function (id) {
+      var n = document.getElementById(id);
+      if (n) n.hidden = true;
+    });
+    return;
+  }
+  DATA.rows = DATA.rows || [];
+  DATA.live = DATA.live || [];
 
   var state = { q: '', category: 'all', chain: 'all', tab: 'pre', sort: 'rank', dir: 1, selected: null };
 
@@ -36,13 +47,25 @@
   // The radar-2 model in one function: the page recomputes a row from snapshot figures and the model
   // constants data.js carries, so the page's arithmetic and board.json's numbers are visibly the same.
   function impliedOf(row, model) {
-    var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
+    var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d));
     var growthM = 1 + (growth / 100) * model.growth_weight;
-    var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
+    var age = row.age_days;
     var ramp = Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days;
     var maturityM = model.maturity_floor + ramp * model.maturity_range;
     var scarcityM = 1 + ramp * model.scarcity_weight;
     return { growthM: growthM, maturityM: maturityM, scarcityM: scarcityM, implied: Math.max(1, Math.round(row.tvl_usd * model.base_multiple * growthM * maturityM * scarcityM)) };
+  }
+
+  // A row the model cannot score: no usable age, 7-day change or TVL. The lib layer lists such protocols
+  // in `unrankable`; the page never invents a figure for them, it shows the reason.
+  function isNum(n) { return typeof n === 'number' && isFinite(n); }
+  function unrankableReasonOf(row) {
+    var list = DATA.unrankable || [];
+    for (var i = 0; i < list.length; i++) if (list[i].slug === row.slug) return list[i].reason;
+    if (!isNum(row.age_days)) return 'has no usable listed_at date';
+    if (!isNum(row.change_7d)) return 'has no change_7d figure';
+    if (!isNum(row.tvl_usd) || !(row.tvl_usd > 0)) return 'has a TVL that is not above zero';
+    return null;
   }
 
   function el(tag, attrs, html) {
@@ -121,6 +144,10 @@
     $('tab-live').setAttribute('aria-pressed', String(state.tab === 'live'));
     $('chain').disabled = state.tab === 'live';
     $('category').disabled = state.tab === 'live';
+    // Category and chain describe the pre-token board; they do not filter Live rows. Say so, rather than
+    // leaving two greyed selects with no explanation.
+    var note = $('filter-note');
+    if (note) note.hidden = state.tab !== 'live';
   }
 
   // ---- table ----------------------------------------------------------------
@@ -136,40 +163,36 @@
   ];
 
   function rows() {
-    var list = state.tab === 'live' ? DATA.live : DATA.rows;
+    var isLive = state.tab === 'live';
+    var list = isLive ? DATA.live : DATA.rows;
     var q = state.q;
     return list.filter(function (r) {
       if (q) {
-        var hay = (r.name + ' ' + (r.category || '') + ' ' + r.chains.join(' ')).toLowerCase();
+        var hay = ((r.name || '') + ' ' + (r.slug || '') + ' ' + (r.category || '') + ' ' + (r.chains || []).join(' ')).toLowerCase();
         if (hay.indexOf(q) === -1) return false;
       }
+      // Pre-token filters (category, chain) never apply to Live rows.
+      if (isLive) return true;
       if (state.category !== 'all' && (r.category || 'Other') !== state.category) return false;
-      if (state.chain !== 'all' && r.chains.indexOf(state.chain) === -1) return false;
+      if (state.chain !== 'all' && (r.chains || []).indexOf(state.chain) === -1) return false;
       return true;
     });
   }
 
+  // A sort key, or null when the row has none. Nulls sort last in both directions (see sortRows).
+  function num(n) { return isNum(n) ? n : null; }
+  function str(x) { return x === null || x === undefined ? null : String(x).toLowerCase(); }
   function value(r, key) {
-    if (state.tab === 'live') {
-      switch (key) {
-        case 'rank': return 0;
-        case 'name': return r.name.toLowerCase();
-        case 'chain': return r.chains[0] || '';
-        case 'tvl': return r.tvl_usd === null ? -1 : r.tvl_usd;
-        case 'change': return r.change_7d === null ? -1 : r.change_7d;
-        case 'age': return 0;
-        case 'implied': return r.mcap_usd === null ? -1 : r.mcap_usd;
-      }
-    }
+    var live = state.tab === 'live';
     switch (key) {
-      case 'rank': return r.rank;
-      case 'name': return r.name.toLowerCase();
-      case 'category': return (r.category || 'Other').toLowerCase();
-      case 'chain': return r.chains[0] || '';
-      case 'tvl': return r.tvl_usd;
-      case 'change': return r.change_7d === null ? -1 : r.change_7d;
-      case 'age': return r.age_days === null ? -1 : r.age_days;
-      case 'implied': return r.implied_value_usd;
+      case 'rank': return live ? 0 : num(r.rank);
+      case 'name': return str(r.name);
+      case 'category': return str(r.category || 'Other');
+      case 'chain': return str((r.chains || [])[0] || '');
+      case 'tvl': return num(r.tvl_usd);
+      case 'change': return num(r.change_7d);
+      case 'age': return live ? 0 : num(r.age_days);
+      case 'implied': return live ? num(r.mcap_usd) : num(r.implied_value_usd);
     }
     return 0;
   }
@@ -178,9 +201,15 @@
     var key = state.sort, dir = state.dir;
     return list.slice().sort(function (a, b) {
       var va = value(a, key), vb = value(b, key);
-      if (va < vb) return -dir;
-      if (va > vb) return dir;
-      return (a.rank || 0) - (b.rank || 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+      if (va === null && vb !== null) return 1;
+      if (vb === null && va !== null) return -1;
+      if (va !== null && vb !== null) {
+        if (va < vb) return -dir;
+        if (va > vb) return dir;
+      }
+      var na = a.name === null || a.name === undefined ? '' : String(a.name);
+      var nb = b.name === null || b.name === undefined ? '' : String(b.name);
+      return (a.rank || 0) - (b.rank || 0) || (na < nb ? -1 : na > nb ? 1 : 0);
     });
   }
 
@@ -211,7 +240,7 @@
 
   function rowHtml(r) {
     var slug = esc(r.slug), name = esc(r.name), cat = esc(r.category || 'Other');
-    var chains = esc(r.chains.join(', ') || '—');
+    var chains = esc((r.chains || []).join(', ') || '—');
     if (state.tab === 'live') {
       var chgL = r.change_7d !== null && r.change_7d >= 0 ? 'up' : 'down';
       return [
@@ -256,15 +285,31 @@
       body.appendChild(tr);
     });
     renderHead();
-    $('foot-note').textContent =
-      'Board counts ' + DATA.rows.length + ' pre-token protocols (' + DATA.early_size + ' below the $' +
+    var foot = 'Board counts ' + DATA.rows.length + ' pre-token protocols (' + DATA.early_size + ' below the ' +
       fmtUsd(DATA.floor_usd) + ' watchlist floor) and sets ' + DATA.live_size + ' live-token protocols aside. Data sealed ' +
       DATA.as_of + ' from ' + DATA.source + '.';
+    // Older data.js files carry neither field: only say what the data says.
+    if (Array.isArray(DATA.watchlist_excluded)) {
+      foot += ' Watchlist excluded: ' + DATA.watchlist_excluded.length +
+        (DATA.watchlist_excluded.length ? ' (' + DATA.watchlist_excluded.join(', ') + ')' : '') + '.';
+    }
+    if (Array.isArray(DATA.unrankable)) {
+      foot += ' Unrankable: ' + DATA.unrankable.length +
+        (DATA.unrankable.length ? ' (' + DATA.unrankable.map(function (u) { return u.slug + ' ' + u.reason; }).join('; ') + ')' : '') + '.';
+    }
+    $('foot-note').textContent = foot;
   }
 
   // ---- detail panel ---------------------------------------------------------
   function kv(dt, dd) {
     return '<dt>' + esc(dt) + '</dt><dd>' + esc(dd) + '</dd>';
+  }
+
+  function closeDetail() {
+    state.selected = null;
+    $('detail').hidden = true;
+    $('detail').innerHTML = '';
+    render();
   }
 
   function openDetail(r) {
@@ -273,26 +318,38 @@
     d.hidden = false;
     var isLive = state.tab === 'live';
     var m = DATA.model;
-    var calc = isLive ? null : impliedOf(r, m);
+    var reason = isLive ? null : unrankableReasonOf(r);
+    var calc = isLive || reason !== null ? null : impliedOf(r, m);
+    var chains = r.chains || [];
     var html = '';
-    html += '<button type="button" class="close" onclick="(function(){var p=document.getElementById(\'detail\');p.hidden=true;})()">Close</button>';
-    html += '<h2>' + esc(r.name) + '</h2>';
-    html += '<p class="sub">' + esc(r.slug) + ' · ' + esc(r.category || 'Other') + ' · ' + esc(r.chains.join(', ') || '—') + '</p>';
+    html += '<button type="button" class="close">Close</button>';
+    html += '<h2>' + esc(r.name === null || r.name === undefined ? r.slug : r.name) + '</h2>';
+    html += '<p class="sub">' + esc(r.slug) + ' · ' + esc(r.category || 'Other') + ' · ' + esc(chains.join(', ') || '—') + '</p>';
     html += '<div class="grid"><section><h3>Snapshot</h3><dl class="kv">';
     html += kv('TVL', fmtUsd(r.tvl_usd));
     html += kv('7-day change', fmtPct(r.change_7d));
-    html += kv('Age', r.age_days === null ? 'unknown' : (Math.round(r.age_days / 30.4 * 10) / 10) + ' months');
+    html += kv('Age', r.age_days === null || r.age_days === undefined ? 'unknown' : (Math.round(r.age_days / 30.4 * 10) / 10) + ' months');
     html += kv('Listed', r.listed_at || 'n/a');
     if (isLive) html += kv('Market cap', fmtUsd(r.mcap_usd));
-    html += '<dl>';
+    var mismatch = false;
+    if (!isLive && calc) {
+      mismatch = calc.implied !== r.implied_value_usd;
+      html += kv('Implied (snapshot)', fmtUsd(r.implied_value_usd));
+      html += '<dt>Implied (recomputed)</dt><dd>' + esc(fmtUsd(calc.implied)) +
+        (mismatch ? ' <span class="mismatch" role="alert" style="color:#c33;font-weight:600">⚠ mismatch: the snapshot says ' + esc(fmtUsd(r.implied_value_usd)) + '</span>' : ' <span class="match" style="opacity:.65">matches</span>') + '</dd>';
+    }
+    html += '</dl>';
+    if (!isLive && !calc) {
+      html += '<div class="breakdown unrankable"><h3>Unrankable</h3><p>This protocol ' + esc(reason) + ', so the model does not score it and the page does not recompute it.</p></div>';
+    }
     if (!isLive && calc) {
       html += '<h3>Radar-2 breakdown</h3><div class="breakdown">';
       html += '<code>implied = ' + fmtUsd(r.tvl_usd) + ' × ' + m.base_multiple;
       html += ' × ' + calc.growthM.toFixed(4) + ' × ' + calc.maturityM.toFixed(4) + ' × ' + calc.scarcityM.toFixed(4) + '</code>';
-      html += '<div class="step">' + 'growth = 1 + clamp(' + (r.change_7d === null ? '0' : r.change_7d) + '%, ' + m.growth_floor + '%, ' + m.growth_cap + '%) × ' + m.growth_weight + ' → ' + calc.growthM.toFixed(4) + '</div>';
-      html += '<div class="step">' + 'maturity = ' + m.maturity_floor + ' + min(' + (r.age_days === null ? m.unknown_age_days : r.age_days) + ', ' + m.maturity_days + ')/' + m.maturity_days + ' × ' + m.maturity_range + ' → ' + calc.maturityM.toFixed(4) + '</div>';
-      html += '<div class="step">' + 'scarcity = 1 + ' + (r.age_days === null ? m.unknown_age_days : r.age_days) + '/' + m.maturity_days + ' × ' + m.scarcity_weight + ' → ' + calc.scarcityM.toFixed(4) + '</div>';
-      html += '<div class="step">' + '<b>Implied value: ' + fmtUsd(r.implied_value_usd) + '</b></div>';
+      html += '<div class="step">' + 'growth = 1 + clamp(' + r.change_7d + '%, ' + m.growth_floor + '%, ' + m.growth_cap + '%) × ' + m.growth_weight + ' → ' + calc.growthM.toFixed(4) + '</div>';
+      html += '<div class="step">' + 'maturity = ' + m.maturity_floor + ' + min(' + r.age_days + ', ' + m.maturity_days + ')/' + m.maturity_days + ' × ' + m.maturity_range + ' → ' + calc.maturityM.toFixed(4) + '</div>';
+      html += '<div class="step">' + 'scarcity = 1 + ' + r.age_days + '/' + m.maturity_days + ' × ' + m.scarcity_weight + ' → ' + calc.scarcityM.toFixed(4) + '</div>';
+      html += '<div class="step">' + '<b>Implied value: ' + fmtUsd(calc.implied) + '</b></div>';
       html += '</div>';
     }
     html += '</section><section><h3>Farm plan</h3>';
@@ -300,7 +357,7 @@
     html += '<ol class="farm">';
     if (isLive) {
       html += '<li><p>Track the token\'s own claims page; register an address if the protocol posts one.</p><p class="cost">Cost: $0 to register. Time: 15 minutes.</p></li>';
-      html += '<li><p>Hold a minimum position sized from its TVL on one chain.</p><p class="cost">Cost: from $' + (r.tvl_usd >= 1e9 ? 150 : 50) + ' of capital. Time: 20 minutes.</p></li>';
+      html += '<li><p>Hold a minimum position sized from its TVL on one chain.</p><p class="cost">Cost: from $' + (isNum(r.tvl_usd) && r.tvl_usd >= 1e9 ? 150 : 50) + ' of capital. Time: 20 minutes.</p></li>';
       html += '<li><p>Repeat one qualifying action a month and log it.</p><p class="cost">Cost: about $2 of gas a month. Time: 10 minutes a month.</p></li>';
     } else {
       var steps = r.farm_steps || [];
@@ -317,6 +374,7 @@
     }
     html += '</ol></section></div>';
     d.innerHTML = html;
+    d.querySelector('.close').addEventListener('click', closeDetail);
     d.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     render();
   }
