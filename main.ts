@@ -121,6 +121,6 @@ const shotCount = stageAndInstall();
 writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: { max_files: 400, max_bytes: 4_194_304 } }));
 
 process.stdout.write(
-  `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} below the floor, ${radar.live_size} live set aside)\n` +
+  `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} not on the watchlist, ${radar.unscorable_count} unscorable left off, ${radar.live_size} live set aside)\n` +
     `token radar: wrote board.json, data.js, dashboard/ and ${shotCount} screenshot${shotCount === 1 ? '' : 's'} into ${out}, then dossier.json\n`,
 );

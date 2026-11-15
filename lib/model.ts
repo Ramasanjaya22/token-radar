@@ -1,7 +1,7 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// The board covers every rankable slug in the snapshot's watchlist (the floor, never a ceiling) and may add
-// pre-token protocols below the watchlist floor: the early rows the radar exists to find. A protocol is
+// The board covers every rankable slug in the snapshot's watchlist (the floor, never a ceiling) and adds every other scorable, rankable
+// pre-token protocol: the early rows the radar exists to find. A protocol is
 // pre-token when its index entry records no token (no market cap, no CoinGecko id, no symbol); the
 // snapshot's live-token protocols are kept apart and shown as the market's own values, never mixed into
 // the ranked board.
