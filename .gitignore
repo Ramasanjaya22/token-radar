@@ -2,3 +2,4 @@ out/
 out2/
 entry.tar.gz
 *.tgz
+exclude-turns.json
