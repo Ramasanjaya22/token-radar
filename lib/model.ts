@@ -360,11 +360,16 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   ];
 }
 
-/** The live-token protocols, by market cap, for the dashboard's Live token view. */
-export function liveRows(snapshot: Snapshot): LiveRow[] {
+/** Every live-token protocol, by market cap, uncapped. */
+function liveProtocols(snapshot: Snapshot): SnapshotProtocol[] {
   return snapshot.protocols
     .filter((p) => !isPreToken(p) && p.category !== 'CEX')
-    .sort((a, b) => (b.mcap_usd ?? 0) - (a.mcap_usd ?? 0) || b.tvl_usd - a.tvl_usd)
+    .sort((a, b) => (b.mcap_usd ?? 0) - (a.mcap_usd ?? 0) || b.tvl_usd - a.tvl_usd);
+}
+
+/** The live-token protocols, by market cap, for the dashboard's Live token view. */
+export function liveRows(snapshot: Snapshot): LiveRow[] {
+  return liveProtocols(snapshot)
     .slice(0, LIVE_ROWS)
     .map((p) => ({
       slug: p.slug,
@@ -412,7 +417,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     watchlist_size: snapshot.watchlist.length,
     board_size: board.length,
     early_size: early,
-    live_size: live.length,
+    live_size: liveProtocols(snapshot).length,
     rows: board.map(radarRow),
     live,
   };
