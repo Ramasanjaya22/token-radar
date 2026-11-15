@@ -93,3 +93,17 @@ test('a CEX and a versioned-pool watchlist slug are excluded and listed', () => 
   assert.deepEqual(radar.watchlist_excluded, ['cex-one', 'pool-v3']);
   assert.equal(boardIssue(board, snapshot), null);
 });
+
+test('a TVL so small the implied value rounds below 1 is unrankable, not floored', () => {
+  const snapshot = makeSnapshot({
+    as_of: '2026-01-10',
+    protocols: [
+      pre({ slug: 'ok', name: 'Ok' }),
+      pre({ slug: 'tiny', name: 'Tiny', tvl_usd: 3, change_7d: -80, listed_at: '2026-01-09' }),
+    ],
+  });
+  const { board, radar } = buildRadar(snapshot);
+  assert.deepEqual(board.map((r) => r.slug), ['ok']);
+  assert.deepEqual(radar.unrankable, [{ slug: 'tiny', reason: 'has a TVL too small to score' }]);
+  assert.equal(boardIssue(board, snapshot), null);
+});

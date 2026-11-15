@@ -195,26 +195,35 @@ function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
 }
 
+/** The unrounded implied value of a protocol the model can read, or null when a figure is missing. */
+function rawImplied(protocol: SnapshotProtocol, asOf: string, model: ModelConstants): { raw: number; age: number; growthPct: number; growthMult: number; maturityMult: number; scarcityMult: number } | null {
+  const age = ageDays(asOf, protocol.listed_at);
+  if (age === null || protocol.change_7d === null || !Number.isFinite(protocol.change_7d)) return null;
+  const growthPct = clamp(protocol.change_7d, model.growth_floor, model.growth_cap);
+  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
+  const ramp = clamp(age, 0, model.maturity_days) / model.maturity_days;
+  const maturityMult = model.maturity_floor + ramp * model.maturity_range;
+  const scarcityMult = 1 + ramp * model.scarcity_weight;
+  const raw = protocol.tvl_usd * model.base_multiple * growthMult * maturityMult * scarcityMult;
+  return { raw, age, growthPct, growthMult, maturityMult, scarcityMult };
+}
+
 /** Why the model cannot score a protocol, or null when it can. */
-export function unrankableReason(protocol: SnapshotProtocol, asOf: string): string | null {
+export function unrankableReason(protocol: SnapshotProtocol, asOf: string, model: ModelConstants = MODEL): string | null {
   if (ageDays(asOf, protocol.listed_at) === null) return 'has no usable listed_at date';
   if (protocol.change_7d === null || !Number.isFinite(protocol.change_7d)) return 'has no change_7d figure';
   if (!(protocol.tvl_usd > 0)) return 'has a TVL that is not above zero';
+  const v = rawImplied(protocol, asOf, model);
+  if (v === null || !(Math.round(v.raw) >= 1)) return 'has a TVL too small to score';
   return null;
 }
 
 /** The four multipliers and the implied value one protocol gets under `model`; null when it is unrankable. */
 export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: ModelConstants): { implied: number; growthPct: number; growthMult: number; maturityMult: number; scarcityMult: number; age: number } | null {
-  const age = ageDays(asOf, protocol.listed_at);
-  if (age === null || unrankableReason(protocol, asOf) !== null) return null;
-  const growthPct = clamp(protocol.change_7d as number, model.growth_floor, model.growth_cap);
-  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
-  const ramp = clamp(age, 0, model.maturity_days) / model.maturity_days;
-  const maturityMult = model.maturity_floor + ramp * model.maturity_range;
-  const scarcityMult = 1 + ramp * model.scarcity_weight;
-  const base = protocol.tvl_usd * model.base_multiple;
-  const implied = Math.round(base * growthMult * maturityMult * scarcityMult);
-  return { implied, growthPct, growthMult, maturityMult, scarcityMult, age };
+  if (unrankableReason(protocol, asOf, model) !== null) return null;
+  const v = rawImplied(protocol, asOf, model);
+  if (v === null) return null;
+  return { implied: Math.round(v.raw), growthPct: v.growthPct, growthMult: v.growthMult, maturityMult: v.maturityMult, scarcityMult: v.scarcityMult, age: v.age };
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -245,7 +254,7 @@ export function watchlistExcluded(snapshot: Snapshot): string[] {
 }
 
 /** The protocols the board considers: every rankable watchlist slug, then the early pre-token pool below the floor. */
-function candidates(snapshot: Snapshot, earlyRows: number): SnapshotProtocol[] {
+function candidates(snapshot: Snapshot, earlyRows: number, model: ModelConstants): SnapshotProtocol[] {
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug it names, whatever its rank. Coverage is the gate's first row.
@@ -256,7 +265,7 @@ function candidates(snapshot: Snapshot, earlyRows: number): SnapshotProtocol[] {
   // The early radar: pre-token protocols below the watchlist floor, by TVL, capped. Never a replacement
   // for a watchlist row: a chosen protocol stays chosen. The cap counts scorable protocols only.
   const early = snapshot.protocols
-    .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd && unrankableReason(p, snapshot.as_of) === null)
+    .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd && unrankableReason(p, snapshot.as_of, model) === null)
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
     .slice(0, earlyRows);
   for (const p of early) chosen.set(p.slug, p);
@@ -278,7 +287,7 @@ export function unrankable(snapshot: Snapshot): UnrankableRow[] {
 
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, earlyRows: number = EARLY_ROWS): BoardRow[] {
-  const scored = candidates(snapshot, earlyRows).flatMap((p) => {
+  const scored = candidates(snapshot, earlyRows, model).flatMap((p) => {
     const v = impliedValue(p, snapshot.as_of, model);
     return v === null ? [] : [{ p, ...v }];
   });

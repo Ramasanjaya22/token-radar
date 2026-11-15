@@ -53,7 +53,7 @@
     var ramp = Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days;
     var maturityM = model.maturity_floor + ramp * model.maturity_range;
     var scarcityM = 1 + ramp * model.scarcity_weight;
-    return { growthM: growthM, maturityM: maturityM, scarcityM: scarcityM, implied: Math.max(1, Math.round(row.tvl_usd * model.base_multiple * growthM * maturityM * scarcityM)) };
+    return { growthM: growthM, maturityM: maturityM, scarcityM: scarcityM, implied: Math.round(row.tvl_usd * model.base_multiple * growthM * maturityM * scarcityM) };
   }
 
   // A row the model cannot score: no usable age, 7-day change or TVL. The lib layer lists such protocols
@@ -244,7 +244,7 @@
     if (state.tab === 'live') {
       var chgL = r.change_7d !== null && r.change_7d >= 0 ? 'up' : 'down';
       return [
-        cell('<span class="rank">' + r.rank + '</span>', 'num'),
+        cell('<span class="rank">—</span>', 'num'),
         cell('<b>' + name + '</b><small>' + slug + '</small>', 'name'),
         cell(cat, 'cat'),
         cell(chains, 'chain'),
