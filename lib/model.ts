@@ -1,6 +1,6 @@
 // The token radar's model: one snapshot of the protocol universe in, one ranked board out.
 //
-// The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and may add
+// The board covers every rankable slug in the snapshot's watchlist (the floor, never a ceiling) and may add
 // pre-token protocols below the watchlist floor: the early rows the radar exists to find. A protocol is
 // pre-token when its index entry records no token (no market cap, no CoinGecko id, no symbol); the
 // snapshot's live-token protocols are kept apart and shown as the market's own values, never mixed into
@@ -11,10 +11,13 @@
 //   base      = tvl_usd x BASE_MULTIPLE
 //   growth    = clamp(change_7d, GROWTH_FLOOR, GROWTH_CAP) per cent
 //   growthM   = 1 + (growth / 100) x GROWTH_WEIGHT
-//   age       = days from listed_at to as_of (unknown: UNKNOWN_AGE_DAYS)
+//   age       = days from listed_at's date to as_of (no usable date: unrankable)
 //   maturityM = MATURITY_FLOOR + min(age, MATURITY_DAYS)/MATURITY_DAYS x MATURITY_RANGE
 //   scarcityM = 1 + min(age, MATURITY_DAYS)/MATURITY_DAYS x SCARCITY_WEIGHT
-//   implied   = max(1, round(base x growthM x maturityM x scarcityM))
+//   implied   = round(base x growthM x maturityM x scarcityM)
+//
+// A protocol with no usable listed_at, no change_7d, or a TVL that is not above zero is not ranked:
+// it is reported in RadarData.unrankable, never scored on an invented age, growth or value.
 //
 // The maturity term says a protocol years old has quietly built the distribution a launch needs; the
 // scarcity term says the same age with no token in the market is the un-tradable room a launch
@@ -53,7 +56,6 @@ export interface ModelConstants {
   maturity_floor: number;
   maturity_range: number;
   maturity_days: number;
-  unknown_age_days: number;
   scarcity_weight: number;
 }
 
@@ -66,7 +68,6 @@ export const MODEL: ModelConstants = {
   maturity_floor: 0.5,
   maturity_range: 0.5,
   maturity_days: 1460,
-  unknown_age_days: 420,
   scarcity_weight: 0.25,
 };
 
@@ -143,6 +144,12 @@ export interface LiveRow {
   change_7d: number | null;
 }
 
+/** A protocol the model cannot score, and why. */
+export interface UnrankableRow {
+  slug: string;
+  reason: string;
+}
+
 /** Everything the dashboard needs: the board, the live set, and the model it runs. */
 export interface RadarData {
   as_of: string;
@@ -156,6 +163,8 @@ export interface RadarData {
   live_size: number;
   /** Watchlist slugs left off the board because the protocol is not rankable (a live token, exchange or versioned pool). */
   watchlist_excluded: string[];
+  /** Protocols left off the board because the snapshot lacks a figure the model needs (age, growth or TVL). */
+  unrankable: UnrankableRow[];
   rows: RadarRow[];
   live: LiveRow[];
 }
@@ -170,16 +179,13 @@ export class SnapshotError extends Error {
 
 const DAY_MS = 86_400_000;
 
-/** A finite number, else `fallback`. */
-function finite(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
 /** A whole day count from `from` to `to`, clamped at zero; null when either date is absent or bad. */
 export function ageDays(asOf: string, listedAt: string | null): number | null {
   if (listedAt === null) return null;
   const a = Date.parse(`${asOf}T00:00:00Z`);
-  const b = Date.parse(`${listedAt}T00:00:00Z`);
+  const datePart = listedAt.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
+  const b = Date.parse(`${datePart}T00:00:00Z`);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
   return Math.max(0, Math.floor((a - b) / DAY_MS));
 }
@@ -189,18 +195,25 @@ function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
 }
 
-/** The four multipliers and the implied value one protocol gets under `model`. */
-export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: ModelConstants): { implied: number; growthPct: number; growthMult: number; maturityMult: number; scarcityMult: number; age: number | null } {
+/** Why the model cannot score a protocol, or null when it can. */
+export function unrankableReason(protocol: SnapshotProtocol, asOf: string): string | null {
+  if (ageDays(asOf, protocol.listed_at) === null) return 'has no usable listed_at date';
+  if (protocol.change_7d === null || !Number.isFinite(protocol.change_7d)) return 'has no change_7d figure';
+  if (!(protocol.tvl_usd > 0)) return 'has a TVL that is not above zero';
+  return null;
+}
+
+/** The four multipliers and the implied value one protocol gets under `model`; null when it is unrankable. */
+export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: ModelConstants): { implied: number; growthPct: number; growthMult: number; maturityMult: number; scarcityMult: number; age: number } | null {
   const age = ageDays(asOf, protocol.listed_at);
-  const rawGrowth = finite(protocol.change_7d, 0);
-  const growthPct = clamp(rawGrowth, model.growth_floor, model.growth_cap);
+  if (age === null || unrankableReason(protocol, asOf) !== null) return null;
+  const growthPct = clamp(protocol.change_7d as number, model.growth_floor, model.growth_cap);
   const growthMult = 1 + (growthPct / 100) * model.growth_weight;
-  const ageForModel = age ?? model.unknown_age_days;
-  const ramp = clamp(ageForModel, 0, model.maturity_days) / model.maturity_days;
+  const ramp = clamp(age, 0, model.maturity_days) / model.maturity_days;
   const maturityMult = model.maturity_floor + ramp * model.maturity_range;
   const scarcityMult = 1 + ramp * model.scarcity_weight;
   const base = protocol.tvl_usd * model.base_multiple;
-  const implied = Math.max(1, Math.round(base * growthMult * maturityMult * scarcityMult));
+  const implied = Math.round(base * growthMult * maturityMult * scarcityMult);
   return { implied, growthPct, growthMult, maturityMult, scarcityMult, age };
 }
 
@@ -231,8 +244,8 @@ export function watchlistExcluded(snapshot: Snapshot): string[] {
   });
 }
 
-/** The protocols the board ranks, strongest first, with ranks 1..n. */
-export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, earlyRows: number = EARLY_ROWS): BoardRow[] {
+/** The protocols the board considers: every rankable watchlist slug, then the early pre-token pool below the floor. */
+function candidates(snapshot: Snapshot, earlyRows: number): SnapshotProtocol[] {
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug it names, whatever its rank. Coverage is the gate's first row.
@@ -241,16 +254,33 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, ea
     if (p !== undefined && isRankable(p)) chosen.set(slug, p);
   }
   // The early radar: pre-token protocols below the watchlist floor, by TVL, capped. Never a replacement
-  // for a watchlist row: a chosen protocol stays chosen.
+  // for a watchlist row: a chosen protocol stays chosen. The cap counts scorable protocols only.
   const early = snapshot.protocols
-    .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd)
+    .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd && unrankableReason(p, snapshot.as_of) === null)
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
     .slice(0, earlyRows);
   for (const p of early) chosen.set(p.slug, p);
+  return [...chosen.values()];
+}
 
-  const scored = [...chosen.values()].map((p) => {
-    const { implied, growthPct, growthMult, maturityMult, scarcityMult, age } = impliedValue(p, snapshot.as_of, model);
-    return { p, implied, growthPct, growthMult, maturityMult, scarcityMult, age };
+/** Rankable watchlist protocols the model cannot score, with the reason, in watchlist order. */
+export function unrankable(snapshot: Snapshot): UnrankableRow[] {
+  const index = bySlug(snapshot.protocols);
+  const rows: UnrankableRow[] = [];
+  for (const slug of snapshot.watchlist) {
+    const p = index.get(slug);
+    if (p === undefined || !isRankable(p)) continue;
+    const reason = unrankableReason(p, snapshot.as_of);
+    if (reason !== null) rows.push({ slug, reason });
+  }
+  return rows;
+}
+
+/** The protocols the board ranks, strongest first, with ranks 1..n. */
+export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, earlyRows: number = EARLY_ROWS): BoardRow[] {
+  const scored = candidates(snapshot, earlyRows).flatMap((p) => {
+    const v = impliedValue(p, snapshot.as_of, model);
+    return v === null ? [] : [{ p, ...v }];
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
   return scored.map((s, i) => ({
@@ -430,6 +460,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     early_size: early,
     live_size: liveProtocols(snapshot).length,
     watchlist_excluded: watchlistExcluded(snapshot),
+    unrankable: unrankable(snapshot),
     rows: board.map(radarRow),
     live,
   };
@@ -477,7 +508,7 @@ export function parseSnapshot(text: string): Snapshot {
 /** Why a board must not be handed to the gate, or null when it passes. */
 export function boardIssue(board: BoardRow[], snapshot: Snapshot): string | null {
   const slugs = new Set(board.map((r) => r.slug));
-  const excluded = new Set(watchlistExcluded(snapshot));
+  const excluded = new Set([...watchlistExcluded(snapshot), ...unrankable(snapshot).map((u) => u.slug)]);
   const missing = snapshot.watchlist.filter((s) => !excluded.has(s) && !slugs.has(s));
   if (missing.length > 0) return `the board misses ${missing.length} watchlist slug${missing.length === 1 ? '' : 's'}: ${missing.slice(0, 5).join(', ')}`;
   const ranks = board.map((r) => r.rank).sort((a, b) => a - b);
